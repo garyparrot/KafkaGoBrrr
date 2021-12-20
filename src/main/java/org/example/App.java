@@ -6,17 +6,22 @@ import com.beust.jcommander.ParameterException;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.IntStream;
-import java.util.stream.LongStream;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.serialization.StringSerializer;
 
 public class App {
 
   public static void main(String[] args) {
     try {
-      execute(Argument.from(args));
+      Argument argument = Argument.from(args);
+      System.out.println(argument);
+      if (argument.showHelp) {
+        Argument.help();
+        return;
+      }
+
+      execute(argument);
     } catch (ParameterException e) {
       e.printStackTrace();
       Argument.help();
@@ -26,22 +31,6 @@ public class App {
   }
 
   static void execute(Argument argument) {
-    System.out.println(argument);
-    if (argument.showHelp) {
-      Argument.help();
-    } else if (argument.testing) {
-      runProducerBenchmark(argument);
-    } else {
-      runProducerStream(argument);
-    }
-  }
-
-  static void runProducerBenchmark(final Argument argument) {
-    double ms = benchmark(() -> runProducerStream(argument), 32);
-    System.out.printf("[LOG] time = %.4fms%n", ms);
-  }
-
-  static void runProducerStream(final Argument argument) {
     ConcurrentRecordProvider concurrentRecordProvider =
         new ConcurrentRecordProvider(argument.topicName, argument.recordSize);
 
@@ -50,34 +39,6 @@ public class App {
           .parallel()
           .forEach(i -> producer.send(concurrentRecordProvider.next()));
     }
-  }
-
-  static void runProducerSingleThread(final Argument argument) {
-    try (var producer = new KafkaProducer<String, String>(propertiesOf(argument))) {
-      for (int i = 0; i < argument.recordCount; i++) {
-        producer.send(new ProducerRecord<>(argument.topicName, "key-" + i, "value-" + i));
-      }
-    }
-  }
-
-  static double benchmark(Runnable runnable, int tries) {
-    System.out.println("[LOG] warm up ...");
-    LongStream.range(0, 8).forEach((i) -> runnable.run());
-
-    System.out.println("[LOG] run benchmark ...");
-    return LongStream.range(0, tries)
-        .map(
-            i -> {
-              long start = System.nanoTime();
-              runnable.run();
-              long end = System.nanoTime();
-              System.out.printf(
-                  "[LOG] iteration %d/%d = %dms%n", i, tries - 1, (end - start) / 1000000);
-              return end - start;
-            })
-        .map(i -> i / 1000000)
-        .average()
-        .orElseGet(() -> Double.NaN);
   }
 
   static Map<String, Object> propertiesOf(final Argument argument) {
@@ -89,17 +50,19 @@ public class App {
         ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG,
         StringSerializer.class,
         ProducerConfig.BUFFER_MEMORY_CONFIG,
-        Runtime.getRuntime().freeMemory() / 2,
+        Runtime.getRuntime().freeMemory() / 8,
         ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION,
-        256,
+        16,
         ProducerConfig.ACKS_CONFIG,
         "0",
+        ProducerConfig.BATCH_SIZE_CONFIG,
+        4096 * 50,
         ProducerConfig.LINGER_MS_CONFIG,
         100);
   }
 
   static class Argument {
-    @Parameter(names = {"--bootstrap.servers"})
+    @Parameter(names = {"--brokers"})
     public String bootstrapServer = "localhost:9092";
 
     @Parameter(names = {"--topic"})
@@ -115,9 +78,6 @@ public class App {
     @Parameter(names = "--help")
     public boolean showHelp = false;
 
-    @Parameter(names = "--testing")
-    public boolean testing = false;
-
     public static Argument from(String[] args) {
       var argument = new Argument();
       JCommander.newBuilder().addObject(argument).build().parse(args);
@@ -132,20 +92,18 @@ public class App {
     @Override
     public String toString() {
       return "Argument{"
-          + " \n bootstrapServer='"
+          + "bootstrapServer='"
           + bootstrapServer
           + '\''
-          + ",\n topicName='"
+          + ", topicName='"
           + topicName
           + '\''
-          + ",\n recordCount="
+          + ", recordCount="
           + recordCount
-          + ",\n recordSize="
+          + ", recordSize="
           + recordSize
-          + ",\n showHelp="
+          + ", showHelp="
           + showHelp
-          + ",\n testing="
-          + testing
           + '}';
     }
   }
