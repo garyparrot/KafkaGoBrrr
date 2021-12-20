@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'application'
     id "com.diffplug.spotless" version "5.14.3"
     id 'com.github.johnrengelman.shadow' version '6.1.0'
 }
@@ -9,6 +10,10 @@ version '1.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
+}
+
+application {
+    mainClassName = project.hasProperty("mainClass") ? project.getProperty("mainClass") : "NULL"
 }
 
 spotless {
