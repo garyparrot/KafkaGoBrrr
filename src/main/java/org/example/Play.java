@@ -16,6 +16,6 @@ public class Play {
     long r = System.nanoTime();
     System.out.printf("Time spend %d%n", (r - l) / 1000000);
 
-    // Consumer.main(new String[] {topic});
+    Consumer.main(new String[] {topic});
   }
 }
